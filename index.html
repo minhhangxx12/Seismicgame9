@@ -1,0 +1,714 @@
+                    x: golem.x + 30,
+                    y: golem.y + 10,
+                    width: 40,
+                    height: 30
+                };
+                
+                // Check for collision with punches
+                const leftPunchBox = golem.getLeftPunchBox();
+                const rightPunchBox = golem.getRightPunchBox();
+                
+                if (leftPunchBox && this.intersects(leftPunchBox)) {
+                    this.hit = true;
+                    this.handleDestruction('left');
+                    return false; // No golem collision, punch handled it
+                }
+                
+                if (rightPunchBox && this.intersects(rightPunchBox)) {
+                    this.hit = true;
+                    this.handleDestruction('right');
+                    return false; // No golem collision, punch handled it
+                }
+                
+                // Check for collision with golem's head
+                return this.intersects(golemHeadBox);
+            }
+            
+            intersects(box) {
+                return (
+                    this.x < box.x + box.width &&
+                    this.x + this.width > box.x &&
+                    this.y < box.y + box.height &&
+                    this.y + this.height > box.y
+                );
+            }
+            
+            handleCollision() {
+                // Handle collision with golem
+                switch (this.type) {
+                    case 'bomb':
+                        if (golem.takeDamage()) {
+                            // Create explosion effect
+                            createExplosion(this.x + this.width / 2, this.y + this.height / 2);
+                            this.hit = true;
+                        }
+                        break;
+                        
+                    case 'gold':
+                        // Gold doesn't hurt, just gives points
+                        this.hit = true;
+                        score += 50;
+                        updateScore();
+                        break;
+                        
+                    case 'water':
+                        // Activate slow motion
+                        this.hit = true;
+                        isSlowMotion = true;
+                        slowMotionTimer = 300; // ~5 seconds at 60fps
+                        break;
+                        
+                    default:
+                        // Regular obstacles damage the golem
+                        if (golem.takeDamage()) {
+                            this.hit = true;
+                        }
+                        break;
+                }
+            }
+            
+            handleDestruction(direction) {
+                switch (this.type) {
+                    case 'bomb':
+                        // If bomb is hit, it explodes and damages golem
+                        createExplosion(this.x + this.width / 2, this.y + this.height / 2);
+                        golem.takeDamage();
+                        break;
+                        
+                    case 'gold':
+                        // Bonus points for gold
+                        score += 100;
+                        createScorePopup(this.x, this.y, '+100', '#f1c40f');
+                        break;
+                        
+                    case 'water':
+                        // Activate slow motion
+                        isSlowMotion = true;
+                        slowMotionTimer = 300; // ~5 seconds at 60fps
+                        break;
+                        
+                    default:
+                        // Regular obstacles give points based on combo
+                        combo++;
+                        const comboMultiplier = Math.min(Math.floor(combo / 3) + 1, 5);
+                        const pointsEarned = 10 * comboMultiplier;
+                        score += pointsEarned;
+                        
+                        // Show combo
+                        updateComboDisplay();
+                        
+                        // Create score popup
+                        createScorePopup(this.x, this.y, `+${pointsEarned}`, '#2ecc71');
+                        
+                        // Reset combo timer
+                        comboTimer = 120; // 2 seconds at 60fps
+                        break;
+                }
+                
+                // Update score display
+                updateScore();
+                
+                // Knockback effect
+                if (direction === 'left') {
+                    this.x -= 5;
+                } else {
+                    this.x += 5;
+                }
+            }
+            
+            getTypeColor() {
+                switch (this.type) {
+                    case 'stone': return '#7f8c8d';
+                    case 'brick': return '#c0392b';
+                    case 'box': return '#f39c12';
+                    case 'bomb': return '#34495e';
+                    case 'gold': return '#f1c40f';
+                    case 'water': return '#3498db';
+                    default: return '#7f8c8d';
+                }
+            }
+        }
+        
+        class ScorePopup {
+            constructor(x, y, text, color) {
+                this.x = x;
+                this.y = y;
+                this.text = text;
+                this.color = color || '#2ecc71';
+                this.life = 0;
+                this.maxLife = 40; // frames
+            }
+            
+            update() {
+                this.y -= 1;
+                this.life++;
+                return this.life < this.maxLife;
+            }
+            
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = 1 - (this.life / this.maxLife);
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.font = 'bold 20px Arial';
+                ctx.textAlign = 'center';
+                ctx.strokeText(this.text, this.x, this.y);
+                ctx.fillText(this.text, this.x, this.y);
+                ctx.restore();
+            }
+        }
+        
+        class Explosion {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 5;
+                this.maxRadius = 50;
+                this.life = 0;
+                this.maxLife = 20; // frames
+            }
+            
+            update() {
+                this.life++;
+                this.radius = (this.life / this.maxLife) * this.maxRadius;
+                return this.life < this.maxLife;
+            }
+            
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = 1 - (this.life / this.maxLife);
+                
+                // Draw explosion
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.radius
+                );
+                gradient.addColorStop(0, '#f39c12');
+                gradient.addColorStop(0.5, '#e74c3c');
+                gradient.addColorStop(1, 'rgba(231, 76, 60, 0)');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+        
+        // Game utility variables
+        let scorePopups = [];
+        let explosions = [];
+        
+        // Background elements
+        const grass = [];
+        
+        function initGrass() {
+            grass.length = 0; // Clear existing grass
+            for (let i = 0; i < 20; i++) {
+                grass.push({
+                    x: Math.random() * canvas.width,
+                    y: canvas.height - 10 - Math.random() * 5,
+                    width: 10 + Math.random() * 10,
+                    height: 10 + Math.random() * 15
+                });
+            }
+        }
+        
+        function drawBackground() {
+            // Draw ground
+            ctx.fillStyle = '#d9b38c';
+            ctx.fillRect(0, canvas.height - 30, canvas.width, 30);
+            
+            // Draw grass
+            ctx.fillStyle = '#27ae60';
+            for (const g of grass) {
+                ctx.beginPath();
+                ctx.moveTo(g.x, g.y);
+                ctx.lineTo(g.x + g.width / 2, g.y - g.height);
+                ctx.lineTo(g.x + g.width, g.y);
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+        
+        // Utility functions
+        function createScorePopup(x, y, text, color) {
+            scorePopups.push(new ScorePopup(x, y, text, color));
+        }
+        
+        function createExplosion(x, y) {
+            explosions.push(new Explosion(x, y));
+        }
+        
+        function updateHealthBar() {
+            const healthPercentage = (golem.health / 3) * 100;
+            healthFill.style.width = `${healthPercentage}%`;
+            
+            // Change color based on health
+            if (healthPercentage > 66) {
+                healthFill.style.backgroundColor = '#2ecc71'; // Green
+            } else if (healthPercentage > 33) {
+                healthFill.style.backgroundColor = '#f39c12'; // Orange
+            } else {
+                healthFill.style.backgroundColor = '#e74c3c'; // Red
+            }
+        }
+        
+        function updateTurnIndicators() {
+            for (let i = 0; i < turnIndicators.length; i++) {
+                if (i < currentTurn - 1) {
+                    turnIndicators[i].classList.add('turn-used');
+                } else {
+                    turnIndicators[i].classList.remove('turn-used');
+                }
+            }
+        }
+        
+        function updateComboDisplay() {
+            if (combo >= 3) {
+                const multiplier = Math.min(Math.floor(combo / 3) + 1, 5);
+                comboIndicator.textContent = `COMBO x${multiplier}!`;
+                comboIndicator.style.opacity = '1';
+                comboIndicator.style.transform = 'translate(-50%, -50%) scale(1.5)';
+                
+                setTimeout(() => {
+                    comboIndicator.style.opacity = '0';
+                    comboIndicator.style.transform = 'translate(-50%, -50%) scale(1)';
+                }, 500);
+            } else {
+                comboIndicator.style.opacity = '0';
+            }
+        }
+        
+        function showLevelUp() {
+            const levelUpText = document.createElement('div');
+            levelUpText.className = 'level-up';
+            levelUpText.textContent = `LEVEL ${level}!`;
+            document.getElementById('game-container').appendChild(levelUpText);
+            
+            // Animate
+            setTimeout(() => {
+                levelUpText.style.opacity = '1';
+                levelUpText.style.transform = 'translate(-50%, -50%) scale(1.5)';
+                
+                setTimeout(() => {
+                    levelUpText.style.opacity = '0';
+                    levelUpText.style.transform = 'translate(-50%, -100%) scale(1)';
+                    
+                    setTimeout(() => {
+                        levelUpText.remove();
+                    }, 500);
+                }, 1000);
+            }, 10);
+        }
+        
+        function endTurn() {
+            if (currentTurn < MAX_TURNS) {
+                // Stop gameplay temporarily
+                gameActive = false;
+                
+                // Check if player has reached the points target
+                if (score >= pointsTarget) {
+                    advanceToNextRound();
+                    return;
+                }
+                
+                // Display turn over message
+                const turnOverText = document.createElement('div');
+                turnOverText.className = 'level-up';
+                turnOverText.style.color = '#e74c3c';
+                turnOverText.textContent = `TURN ${currentTurn} OVER!`;
+                document.getElementById('game-container').appendChild(turnOverText);
+                
+                // Animate
+                setTimeout(() => {
+                    turnOverText.style.opacity = '1';
+                    turnOverText.style.transform = 'translate(-50%, -50%) scale(1.5)';
+                    
+                    // Wait 2 seconds before starting next turn
+                    setTimeout(() => {
+                        turnOverText.style.opacity = '0';
+                        turnOverText.style.transform = 'translate(-50%, -100%) scale(1)';
+                        
+                        setTimeout(() => {
+                            turnOverText.remove();
+                            startNextTurn();
+                        }, 500);
+                    }, 2000);
+                }, 10);
+            } else {
+                // All turns used, game over
+                endGame();
+            }
+        }
+        
+        function advanceToNextRound() {
+            // Stop gameplay temporarily
+            gameActive = false;
+            
+            // Display round complete message
+            const roundCompleteText = document.createElement('div');
+            roundCompleteText.className = 'level-up';
+            roundCompleteText.style.color = '#27ae60';
+            roundCompleteText.textContent = `ROUND ${round} COMPLETE!`;
+            document.getElementById('game-container').appendChild(roundCompleteText);
+            
+            // Animate
+            setTimeout(() => {
+                roundCompleteText.style.opacity = '1';
+                roundCompleteText.style.transform = 'translate(-50%, -50%) scale(1.5)';
+                
+                // Wait 2 seconds before starting next round
+                setTimeout(() => {
+                    roundCompleteText.style.opacity = '0';
+                    roundCompleteText.style.transform = 'translate(-50%, -100%) scale(1)';
+                    
+                    setTimeout(() => {
+                        roundCompleteText.remove();
+                        startNextRound();
+                    }, 500);
+                }, 2000);
+            }, 10);
+        }
+        
+        function startNextRound() {
+            // Advance to next round
+            round++;
+            
+            // Reset turns
+            currentTurn = 1;
+            updateTurnIndicators();
+            
+            // Increase difficulty
+            pointsTarget = Math.floor(POINTS_TARGET_INITIAL * Math.pow(POINTS_TARGET_MULTIPLIER, round - 1));
+            obstacleSpeed = OBSTACLE_SPEED_INITIAL * Math.pow(SPEED_INCREASE_FACTOR, round - 1);
+            obstacleSpawnRate = Math.max(OBSTACLE_SPAWN_RATE_INITIAL / Math.pow(SPEED_INCREASE_FACTOR, round - 1), 300);
+            gameTime = Math.floor(GAME_DURATION_INITIAL * Math.pow(TIME_INCREASE_FACTOR, round - 1));
+            
+            // Update UI
+            updatePointsTarget();
+            timerElement.textContent = `Time: ${gameTime}`;
+            
+            // Reset golem health
+            golem.health = 3;
+            updateHealthBar();
+            
+            // Clear obstacles
+            obstacles = [];
+            
+            // Resume gameplay
+            gameActive = true;
+            
+            // Update spawn interval
+            clearInterval(spawnInterval);
+            spawnInterval = setInterval(spawnObstacle, obstacleSpawnRate);
+            
+            // Restart timer
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (gameTime > 0 && gameActive) {
+                    gameTime--;
+                    timerElement.textContent = `Time: ${gameTime}`;
+                    
+                    if (gameTime === 0) {
+                        endTurn();
+                    }
+                }
+            }, 1000);
+            
+            // Resume game loop
+            lastFrameTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        function updatePointsTarget() {
+            pointsTargetElement.innerHTML = `<span>Target: ${pointsTarget}</span>`;
+        }
+        
+        function startNextTurn() {
+            // Advance to next turn
+            currentTurn++;
+            
+            // Update turn indicators
+            updateTurnIndicators();
+            
+            // Reset golem health
+            golem.health = 3;
+            updateHealthBar();
+            
+            // Clear obstacles
+            obstacles = [];
+            
+            // Resume gameplay
+            gameActive = true;
+            
+            // Resume game loop
+            lastFrameTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        function updateScore() {
+            scoreElement.textContent = `Score: ${score}`;
+            
+            // Check for level up based on score
+            const newLevel = Math.floor(score / 500) + 1;
+            if (newLevel > level) {
+                level = newLevel;
+                levelElement.textContent = `Level: ${level}`;
+                
+                // Increase difficulty
+                obstacleSpeed = Math.min(obstacleSpeed + 0.5, 8);
+                obstacleSpawnRate = Math.max(obstacleSpawnRate - 100, 300);
+                
+                // Update spawn interval
+                clearInterval(spawnInterval);
+                spawnInterval = setInterval(spawnObstacle, obstacleSpawnRate);
+                
+                // Show level up animation
+                showLevelUp();
+            }
+            
+            // Check if target score reached
+            if (score >= pointsTarget && gameActive) {
+                // Auto advance to next round when target is reached during gameplay
+                advanceToNextRound();
+            }
+        }
+        
+        function spawnObstacle() {
+            if (!gameActive) return;
+            
+            obstacles.push(new Obstacle());
+        }
+        
+        // Game events and controls
+        function handleKeyDown(e) {
+            if (!gameActive) return;
+            
+            switch (e.key) {
+                case 'q':
+                case 'Q':
+                    golem.punchLeft();
+                    break;
+                    
+                case 'w':
+                case 'W':
+                    golem.punchRight();
+                    break;
+                    
+                case 'ArrowLeft':
+                    golem.movingLeft = true;
+                    break;
+                    
+                case 'ArrowRight':
+                    golem.movingRight = true;
+                    break;
+            }
+        }
+        
+        function handleKeyUp(e) {
+            if (!gameActive) return;
+            
+            switch (e.key) {
+                case 'ArrowLeft':
+                    golem.movingLeft = false;
+                    break;
+                    
+                case 'ArrowRight':
+                    golem.movingRight = false;
+                    break;
+            }
+        }
+        
+        function init() {
+            // Create golem
+            golem = new Golem();
+            
+            // Reset game variables
+            obstacles = [];
+            score = 0;
+            level = 1;
+            combo = 0;
+            comboTimer = 0;
+            round = 1;
+            currentTurn = 1;
+            roundOver = false;
+            
+            // Set initial difficulty
+            pointsTarget = POINTS_TARGET_INITIAL;
+            obstacleSpeed = OBSTACLE_SPEED_INITIAL;
+            obstacleSpawnRate = OBSTACLE_SPAWN_RATE_INITIAL;
+            gameTime = GAME_DURATION_INITIAL;
+            
+            // Reset other variables
+            explosions = [];
+            scorePopups = [];
+            isSlowMotion = false;
+            slowMotionTimer = 0;
+            
+            // Reset UI
+            scoreElement.textContent = `Score: ${score}`;
+            levelElement.textContent = `Level: ${level}`;
+            timerElement.textContent = `Time: ${gameTime}`;
+            updatePointsTarget();
+            
+            // Update health bar
+            updateHealthBar();
+            
+            // Update turn indicators
+            updateTurnIndicators();
+            
+            // Create grass
+            initGrass();
+            
+            // Add event listeners
+            document.addEventListener('keydown', handleKeyDown);
+            document.addEventListener('keyup', handleKeyUp);
+        }
+        
+        function startGame() {
+            gameActive = true;
+            
+            // Hide start screen
+            startScreen.style.display = 'none';
+            
+            // Start obstacle spawning
+            spawnInterval = setInterval(spawnObstacle, obstacleSpawnRate);
+            
+            // Start game loop
+            lastFrameTime = performance.now();
+            requestAnimationFrame(gameLoop);
+            
+            // Start game timer
+            timerInterval = setInterval(() => {
+                if (gameTime > 0 && gameActive) {
+                    gameTime--;
+                    timerElement.textContent = `Time: ${gameTime}`;
+                    
+                    if (gameTime === 0) {
+                        endTurn();
+                    }
+                }
+            }, 1000);
+        }
+        
+        function endGame() {
+            gameActive = false;
+            roundOver = true;
+            
+            // Clear intervals
+            clearInterval(spawnInterval);
+            clearInterval(timerInterval);
+            
+            // Remove event listeners
+            document.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('keyup', handleKeyUp);
+            
+            // Show game over screen
+            finalScoreElement.textContent = score;
+            finalLevelElement.textContent = level;
+            finalTurnsElement.textContent = currentTurn;
+            document.getElementById('final-round').textContent = round;
+            gameOverScreen.style.display = 'flex';
+        }
+        
+        function gameLoop(timestamp) {
+            if (!gameActive) return;
+            
+            // Calculate delta time
+            const deltaTime = (timestamp - lastFrameTime) / (1000 / 60);
+            lastFrameTime = timestamp;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background
+            drawBackground();
+            
+            // Update and draw golem
+            golem.update();
+            golem.draw();
+            
+            // Update and draw obstacles
+            obstacles = obstacles.filter(obstacle => {
+                obstacle.update(deltaTime);
+                obstacle.draw();
+                return !obstacle.destroyed;
+            });
+            
+            // Update and draw score popups
+            scorePopups = scorePopups.filter(popup => {
+                const active = popup.update();
+                popup.draw();
+                return active;
+            });
+            
+            // Update and draw explosions
+            explosions = explosions.filter(explosion => {
+                const active = explosion.update();
+                explosion.draw();
+                return active;
+            });
+            
+            // Update combo timer
+            if (combo > 0 && comboTimer > 0) {
+                comboTimer--;
+                if (comboTimer === 0) {
+                    combo = 0;
+                    updateComboDisplay();
+                }
+            }
+            
+            // Update slow motion
+            if (isSlowMotion) {
+                slowMotionTimer--;
+                if (slowMotionTimer <= 0) {
+                    isSlowMotion = false;
+                }
+            }
+            
+            // Request next frame if game still active
+            if (gameActive && !roundOver) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+        
+        // Event listeners
+        startButton.addEventListener('click', () => {
+            init();
+            startGame();
+        });
+        
+        restartButton.addEventListener('click', () => {
+            gameOverScreen.style.display = 'none';
+            init();
+            startGame();
+        });
+        
+        // Fix for rounded corners in canvas
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, width, height, radius) {
+                if (radius === undefined) {
+                    radius = 5;
+                }
+                this.beginPath();
+                this.moveTo(x + radius, y);
+                this.lineTo(x + width - radius, y);
+                this.quadraticCurveTo(x + width, y, x + width, y + radius);
+                this.lineTo(x + width, y + height - radius);
+                this.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                this.lineTo(x + radius, y + height);
+                this.quadraticCurveTo(x, y + height, x, y + height - radius);
+                this.lineTo(x, y + radius);
+                this.quadraticCurveTo(x, y, x + radius, y);
+                this.closePath();
+                return this;
+            };
+        }
+        
+        // Initial setup
+        init();
+    </script>
+</body>
+</html>
